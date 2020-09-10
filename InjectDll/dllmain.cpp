@@ -219,9 +219,11 @@ DWORD __stdcall UpdateThread(LPVOID p)
 		// 超级移动
 		if (g_bSuperMove)SuperMove(50);
 		// 更新玩家信息
-		sprintf(szBuffer, "getlocalplayer: %X\n"
+		sprintf(szBuffer, "player::update: %X\n"
+			"getlocalplayer: %X\n"
 			"坐标 (%.1f, %.1f)\n"
 			"血量: %d\t",			
+			g_dwFnPlayerUpdate,
 			g_dwFnGetLocalPlayer,
 			*g_LocalPlayer.pX, *g_LocalPlayer.pY,
 			*g_LocalPlayer.pHp);
