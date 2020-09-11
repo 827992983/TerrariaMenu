@@ -1,39 +1,161 @@
-﻿// test.cpp : 此文件包含 "main" 函数。程序执行将在此处开始并结束。
-//
+﻿
+#include<Windows.h>
+//#include<iostream>
+#include<vector>
+#include<time.h>
 
-#include <stdio.h>
-#include <string.h>
-#include <windows.h>
+//using namespace std;
+
+#define BLOCKMAXSIZE 409600//每次读取内存的最大大小
+BYTE *MemoryData;//每次将读取的内存读入这里
+short Next[260];
+
+//特征码转字节集
+WORD GetTzmArray(char *Tzm, WORD *TzmArray)
+{
+	int len = 0;
+	WORD TzmLength = strlen(Tzm) / 3 + 1;
+
+	for (int i = 0; i < strlen(Tzm); )//将十六进制特征码转为十进制
+	{
+		char num[2];
+		num[0] = Tzm[i++];
+		num[1] = Tzm[i++];
+		i++;
+		if (num[0] != '?' && num[1] != '?')
+		{
+			int sum = 0;
+			WORD a[2];
+			for (int i = 0; i < 2; i++)
+			{
+				if (num[i] >= '0' && num[i] <= '9')
+				{
+					a[i] = num[i] - '0';
+				}
+				else if (num[i] >= 'a' && num[i] <= 'z')
+				{
+					a[i] = num[i] - 87;
+				}
+				else if (num[i] >= 'A' && num[i] <= 'Z')
+				{
+					a[i] = num[i] - 55;
+				}
+
+			}
+			sum = a[0] * 16 + a[1];
+			TzmArray[len++] = sum;
+		}
+		else
+		{
+			TzmArray[len++] = 256;
+		}
+	}
+	return TzmLength;
+}
+
+//获取Next数组
+void GetNext(short *next, WORD *Tzm, WORD TzmLength)
+{
+	//特征码（字节集）的每个字节的范围在0-255（0-FF）之间，256用来表示问号，到260是为了防止越界
+	for (int i = 0; i < 260; i++)
+		next[i] = -1;
+	for (int i = 0; i < TzmLength; i++)
+		next[Tzm[i]] = i;
+}
+
+//搜索一块内存
+void SearchMemoryBlock(HANDLE hProcess, WORD *Tzm, WORD TzmLength, unsigned __int64 StartAddress, unsigned long size, std::vector<unsigned __int64> &ResultArray)
+{
+	if (!ReadProcessMemory(hProcess, (LPCVOID)StartAddress, MemoryData, size, NULL))
+	{
+		return;
+	}
+
+	for (int i = 0, j, k; i < size;)
+	{
+		j = i; k = 0;
+
+		for (; k < TzmLength && j < size && (Tzm[k] == MemoryData[j] || Tzm[k] == 256); k++, j++);
+
+		if (k == TzmLength)
+		{
+			ResultArray.push_back(StartAddress + i);
+		}
+
+		if ((i + TzmLength) >= size)
+		{
+			return;
+		}
+
+		int num = Next[MemoryData[i + TzmLength]];
+		if (num == -1)
+			i += (TzmLength - Next[256]);//如果特征码有问号，就从问号处开始匹配，如果没有就i+=-1
+		else
+			i += (TzmLength - num);
+	}
+}
+
+//搜索整个程序
+int SearchMemory(HANDLE hProcess, char *Tzm, unsigned __int64 StartAddress, unsigned __int64 EndAddress, int InitSize, std::vector<unsigned __int64> &ResultArray)
+{
+	int i = 0;
+	unsigned long BlockSize;
+	MEMORY_BASIC_INFORMATION mbi;
+
+	WORD TzmLength = strlen(Tzm) / 3 + 1;
+	WORD *TzmArray = new WORD[TzmLength];
+
+	GetTzmArray(Tzm, TzmArray);
+	GetNext(Next, TzmArray, TzmLength);
+
+	//初始化结果数组
+	ResultArray.clear();
+	ResultArray.reserve(InitSize);
+
+	while (VirtualQueryEx(hProcess, (LPCVOID)StartAddress, &mbi, sizeof(mbi)) != 0)
+	{
+		//获取可读可写和可读可写可执行的内存块
+		if (mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_EXECUTE_READWRITE)
+		{
+			i = 0;
+			BlockSize = mbi.RegionSize;
+			//搜索这块内存
+			while (BlockSize >= BLOCKMAXSIZE)
+			{
+				SearchMemoryBlock(hProcess, TzmArray, TzmLength, StartAddress + (BLOCKMAXSIZE * i), BLOCKMAXSIZE, ResultArray);
+				BlockSize -= BLOCKMAXSIZE; i++;
+			}
+			SearchMemoryBlock(hProcess, TzmArray, TzmLength, StartAddress + (BLOCKMAXSIZE * i), BlockSize, ResultArray);
+
+		}
+		StartAddress += mbi.RegionSize;
+
+		if (EndAddress != 0 && StartAddress > EndAddress)
+		{
+			return ResultArray.size();
+		}
+	}
+	free(TzmArray);
+	return ResultArray.size();
+}
 
 int main()
 {
-    //const char *str = "D99EE8030000D9E8D99EF0030000D9E8D99EEC030000D9E8D99E00040000C786DC03000004000000C786E403000004000000C786E003000004000000889632070000889633070000D9EE";
-    //for (size_t i = 0; i < strlen(str); i++)
-    //{
-    //    if (i % 2 == 0)
-    //    {
-    //        printf("0x%c%c", str[i], str[i + 1]);
-    //    }
-    //    else
-    //    {
-    //        printf(", ");
-    //    }
-    //}
-    //printf("\n");
+	//初始化MemoryData大小
+	MemoryData = new BYTE[BLOCKMAXSIZE];
+	std::vector<unsigned __int64> ResultArray;
+	HANDLE hProcess = GetCurrentProcess();
 
-    //printf("%d\n", sizeof(LONGLONG));//8/
+	int start = clock();
+	SearchMemory(hProcess, (char *)"E8 ?? ?? ?? ??", 0x410000, 0xFFFFFFFF, 30, ResultArray);
+	int end = clock();
+	printf("用时: %d 毫秒\n", end - start);
+	printf("搜索到 %d 个结果\n", ResultArray.size());
 
-    float a = 114514.0;
-    a = a + 1;
+	for (std::vector<unsigned __int64>::iterator it = ResultArray.begin(); it != ResultArray.end(); it++)
+	{
+		printf("%x\n", *it);
+	}
+
+	return 0;
 }
-
-// 运行程序: Ctrl + F5 或调试 >“开始执行(不调试)”菜单
-// 调试程序: F5 或调试 >“开始调试”菜单
-
-// 入门使用技巧: 
-//   1. 使用解决方案资源管理器窗口添加/管理文件
-//   2. 使用团队资源管理器窗口连接到源代码管理
-//   3. 使用输出窗口查看生成输出和其他消息
-//   4. 使用错误列表窗口查看错误
-//   5. 转到“项目”>“添加新项”以创建新的代码文件，或转到“项目”>“添加现有项”以将现有代码文件添加到项目
-//   6. 将来，若要再次打开此项目，请转到“文件”>“打开”>“项目”并选择 .sln 文件

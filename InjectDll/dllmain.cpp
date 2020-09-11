@@ -1,10 +1,14 @@
 ﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #define  _CRT_SECURE_NO_WARNINGS
-#include "resource.h"
+
 #include <Windows.h>
 #include <stdio.h>
 #include <vector>
 #include <tlhelp32.h>
+#include "resource.h"
+#include "aobtool.h"
+#include <time.h>
+
 struct Player
 {
 	void SetBase(void *_this)
@@ -57,7 +61,7 @@ float g_fLockY; // 锁定的高度
 
 
 DWORD __stdcall EjectThread(LPVOID p);
-DWORD GetAddressFromSignature(std::vector<int> signature, DWORD dwStartAddress, DWORD dwEndAddress);
+//DWORD GetAddressFromSignature(std::vector<int> signature, DWORD dwStartAddress, DWORD dwEndAddress); // 旧算法效率低
 DWORD GetPlayerBase();
 BOOL CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 DWORD WINAPI CreateMainDialog(LPVOID p);
@@ -89,81 +93,59 @@ DWORD __stdcall EjectThread(LPVOID p)
 }
 
 // 获取特征码地址
-DWORD GetAddressFromSignature(std::vector<int> signature, DWORD dwStartAddress = 0, DWORD dwEndAddress = 0)
-{
-	if (dwStartAddress == 0 || dwEndAddress == 0)
-	{
-		SYSTEM_INFO si;
-		GetSystemInfo(&si);
-		dwStartAddress = (DWORD)si.lpMinimumApplicationAddress;
-		dwEndAddress = (DWORD)si.lpMaximumApplicationAddress;
-	}
-	MEMORY_BASIC_INFORMATION mbi = { 0 };
-	DWORD dwProtectFlags = PAGE_GUARD | PAGE_NOCACHE | PAGE_NOACCESS;
-	for (DWORD i = dwStartAddress; i < dwEndAddress - signature.size(); )
-	{
-		//printf("扫描: %X\n", i);
-		if (VirtualQuery((LPCVOID)i, &mbi, sizeof(mbi)))
-		{
-			if (mbi.Protect & dwProtectFlags || !(mbi.State & MEM_COMMIT))
-			{
-				printf("不可读内存区域: %X -> %X\n", (DWORD)mbi.BaseAddress, (DWORD)mbi.BaseAddress + mbi.RegionSize);
-				i += mbi.RegionSize;
-				continue; // 跳过不可读地址
-			}
-			printf("可读内存区域: %X -> %X\n", (DWORD)mbi.BaseAddress, (DWORD)mbi.BaseAddress + mbi.RegionSize);
-			for (DWORD k = (DWORD)mbi.BaseAddress; k < (DWORD)mbi.BaseAddress + mbi.RegionSize - signature.size(); k++)
-			{
-				for (DWORD j = 0; j < signature.size(); j++)
-				{
-					if (signature.at(j) != -1 && signature.at(j) != *(PBYTE)(k + j))
-						break;
-					if (j + 1 == signature.size())
-						return k;
-				}
-			}
-			i = (DWORD)mbi.BaseAddress + mbi.RegionSize;
-		}
-	}
-	return NULL;
-}
+//DWORD GetAddressFromSignature(std::vector<int> signature, DWORD dwStartAddress = 0, DWORD dwEndAddress = 0)
+//{
+//	if (dwStartAddress == 0 || dwEndAddress == 0)
+//	{
+//		SYSTEM_INFO si;
+//		GetSystemInfo(&si);
+//		dwStartAddress = (DWORD)si.lpMinimumApplicationAddress;
+//		dwEndAddress = (DWORD)si.lpMaximumApplicationAddress;
+//	}
+//	MEMORY_BASIC_INFORMATION mbi = { 0 };
+//	DWORD dwProtectFlags = PAGE_GUARD | PAGE_NOCACHE | PAGE_NOACCESS;
+//	for (DWORD i = dwStartAddress; i < dwEndAddress - signature.size(); )
+//	{
+//		//printf("扫描: %X\n", i);
+//		if (VirtualQuery((LPCVOID)i, &mbi, sizeof(mbi)))
+//		{
+//			if (mbi.Protect & dwProtectFlags || !(mbi.State & MEM_COMMIT))
+//			{
+//				printf("不可读内存区域: %X -> %X\n", (DWORD)mbi.BaseAddress, (DWORD)mbi.BaseAddress + mbi.RegionSize);
+//				i += mbi.RegionSize;
+//				continue; // 跳过不可读地址
+//			}
+//			printf("可读内存区域: %X -> %X\n", (DWORD)mbi.BaseAddress, (DWORD)mbi.BaseAddress + mbi.RegionSize);
+//			for (DWORD k = (DWORD)mbi.BaseAddress; k < (DWORD)mbi.BaseAddress + mbi.RegionSize - signature.size(); k++)
+//			{
+//				for (DWORD j = 0; j < signature.size(); j++)
+//				{
+//					if (signature.at(j) != -1 && signature.at(j) != *(PBYTE)(k + j))
+//						break;
+//					if (j + 1 == signature.size())
+//						return k;
+//				}
+//			}
+//			i = (DWORD)mbi.BaseAddress + mbi.RegionSize;
+//		}
+//	}
+//	return NULL;
+//}
 
 // 获取玩家基址
 DWORD GetPlayerBase()
 {
+	
 	if (g_dwFnGetLocalPlayer == 0)
 	{
-		std::vector<int> sig = { 0xA1, -1 ,-1, -1, -1 ,
-			0x8B ,0x15, -1 ,-1 ,-1 ,-1 ,
-			0x3B ,0x50 ,0x04 ,0x73 ,0x05 ,0x8B ,0x44 ,0x90 ,0x08 ,0xC3 ,
-			0xE8 ,-1, -1, -1 ,-1 ,0xCC };
-
-		g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x23000000, 0x24000000);
-
-		if (g_dwFnGetLocalPlayer == 0)
-		{
-			g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x20000000, 0x23000000);
-		}
-		if (g_dwFnGetLocalPlayer == 0)
-		{
-			g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x24000000, 0x26000000);
-		}
-		if (g_dwFnGetLocalPlayer == 0)
-		{
-			g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x1F000000, 0x20000000);
-		}
-		if (g_dwFnGetLocalPlayer == 0)
-		{
-			g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x26000000, 0x4A000000);
-		}
-		if (g_dwFnGetLocalPlayer == 0)
-		{
-			g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x4A000000, 0x50000000);
-		}
-		if (g_dwFnGetLocalPlayer == 0)
-		{
-			g_dwFnGetLocalPlayer = GetAddressFromSignature(sig);
-		}
+		std::vector <DWORD> vResultContainer = AobScan::FindSigX32(GetCurrentProcessId(),
+			"A1????????8B15????????3B500473058B449008C3E8????????CC",
+			0x1F000000, 0x50000000);
+		if (vResultContainer.size() == 0)
+			vResultContainer = AobScan::FindSigX32(GetCurrentProcessId(),
+				"A1????????8B15????????3B500473058B449008C3E8????????CC",
+				0, 0xFFFFFFFF);
+		g_dwFnGetLocalPlayer = vResultContainer[0];
 	}
 	DWORD eax = *(PDWORD)(*(PDWORD)(g_dwFnGetLocalPlayer + 1));
 	DWORD edx = *(PDWORD)(*(PDWORD)(g_dwFnGetLocalPlayer + 7));
@@ -176,42 +158,18 @@ DWORD GetPlayerUpdate()
 {
 	if (g_dwFnPlayerUpdate == 0)
 	{
-		std::vector<int> sig = {
-		0x55, 0x8B, 0xEC, 0x57, 0x56, 0x53, 0x81,
-		0xEC, 0x98, 0x09, 0x00, 0x00, 0x8B, 0xF1,
-		0x8D, 0xBD, 0x6C, 0xF6, 0xFF, 0xFF, 0xB9,
-		0x61, 0x02, 0x00, 0x00, 0x33, 0xC0, 0xF3,
-		0xAB, 0x8B, 0xCE, 0x89, 0x8D, 0x68, 0xF6,
-		0xFF, 0xFF, 0x89, 0x55, 0xDC, 0x8B, 0x8D,
-		0x68, 0xF6, 0xFF, 0xFF, 0xE8, -1, -1, -1,
-		-1, 0x8B, 0x45, 0xDC };
-
-		g_dwFnPlayerUpdate = GetAddressFromSignature(sig, 0x23000000, 0x24000000);
-
-		if (g_dwFnPlayerUpdate == 0)
-		{
-			g_dwFnPlayerUpdate = GetAddressFromSignature(sig, 0x20000000, 0x23000000);
-		}
-		if (g_dwFnPlayerUpdate == 0)
-		{
-			g_dwFnPlayerUpdate = GetAddressFromSignature(sig, 0x24000000, 0x26000000);
-		}
-		if (g_dwFnPlayerUpdate == 0)
-		{
-			g_dwFnPlayerUpdate = GetAddressFromSignature(sig, 0x1F000000, 0x20000000);
-		}
-		if (g_dwFnPlayerUpdate == 0)
-		{
-			g_dwFnPlayerUpdate = GetAddressFromSignature(sig, 0x26000000, 0x4A000000);
-		}
-		if (g_dwFnPlayerUpdate == 0)
-		{
-			g_dwFnPlayerUpdate = GetAddressFromSignature(sig, 0x4A000000, 0x50000000);
-		}
-		if (g_dwFnPlayerUpdate == 0)
-		{
-			g_dwFnPlayerUpdate = GetAddressFromSignature(sig);
-		}
+		// 0x4A000000 - 0x50000000
+		// 0x1F000000 - 0x4A000000
+		// 0x00000000 - 0xFFFFFFFF
+		std::vector <DWORD> vResultContainer = AobScan::FindSigX32(GetCurrentProcessId(), 
+			"558BEC57565381EC980900008BF18DBD6CF6FFFFB96102000033C0F3AB8BCE898D68F6FFFF8955DC8B8D68F6FFFFE8????????8B45DC",
+			0x1F000000, 0x50000000);
+		if (vResultContainer.size() == 0)
+			vResultContainer = AobScan::FindSigX32(GetCurrentProcessId(),
+				"558BEC57565381EC980900008BF18DBD6CF6FFFFB96102000033C0F3AB8BCE898D68F6FFFF8955DC8B8D68F6FFFFE8????????8B45DC",
+				0, 0xFFFFFFFF);
+		
+		g_dwFnPlayerUpdate = vResultContainer[0];
 	}
 	return g_dwFnPlayerUpdate;
 }
@@ -221,35 +179,14 @@ DWORD GetPlayerResetEffects()
 {
 	if (g_dwFnPlayerResetEffects == 0)
 	{
-		std::vector<int> sig = { 0xD9, 0x9E, 0xE8, 0x03, 0x00, 0x00, 0xD9, 0xE8, 0xD9, 0x9E, 0xF0, 0x03, 0x00, 0x00, 0xD9, 0xE8, 0xD9, 0x9E, 0xEC, 0x03, 0x00, 0x00, 0xD9, 0xE8, 0xD9, 0x9E, 0x00, 0x04, 0x00, 0x00, 0xC7, 0x86, 0xDC, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xC7, 0x86, 0xE4, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xC7, 0x86, 0xE0, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x88, 0x96, 0x32, 0x07, 0x00, 0x00, 0x88, 0x96, 0x33, 0x07, 0x00, 0x00, 0xD9, 0xEE };
-
-		g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x23000000, 0x24000000);
-
-		if (g_dwFnPlayerResetEffects == 0)
-		{
-			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x20000000, 0x23000000);
-		}
-		if (g_dwFnPlayerResetEffects == 0)
-		{
-			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x24000000, 0x26000000);
-		}
-		if (g_dwFnPlayerResetEffects == 0)
-		{
-			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x1F000000, 0x20000000);
-		}
-		if (g_dwFnPlayerResetEffects == 0)
-		{
-			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x26000000, 0x4A000000);
-		}
-		if (g_dwFnPlayerResetEffects == 0)
-		{
-			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x4A000000, 0x50000000);
-		}
-		if (g_dwFnPlayerResetEffects == 0)
-		{
-			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig);
-		}
-		g_dwFnPlayerResetEffects -= 0xAC;
+		std::vector <DWORD> vResultContainer = AobScan::FindSigX32(GetCurrentProcessId(),
+			"D99EE8030000D9E8D99EF0030000D9E8D99EEC030000D9E8D99E00040000C786DC03000004000000C786E403000004000000C786E003000004000000889632070000889633070000D9EE",
+			0x1F000000, 0x50000000);
+		if (vResultContainer.size() == 0)
+			vResultContainer = AobScan::FindSigX32(GetCurrentProcessId(),
+				"D99EE8030000D9E8D99EF0030000D9E8D99EEC030000D9E8D99E00040000C786DC03000004000000C786E403000004000000C786E003000004000000889632070000889633070000D9EE",
+				0, 0xFFFFFFFF);
+		g_dwFnPlayerResetEffects = vResultContainer[0] - 0xAC;
 	}
 	
 	return g_dwFnPlayerResetEffects;
@@ -435,11 +372,22 @@ DWORD WINAPI CreateMainDialog(LPVOID p)
 	FILE *fp;
 	freopen_s(&fp, "CONOUT$", "w", stdout);
 	// AOB扫描内存，得到某些关键函数的地址，从而得到玩家基址等其他信息
+	printf("计算玩家基址...\n");
+	int start = clock();
 	g_dwPlayerBase = GetPlayerBase();
-	GetPlayerUpdate();	
+	int end = clock();
+	printf("用时 %d ms.\n", end - start);
+	printf("获取Player::Update函数地址...\n");
+	start = clock();
+	GetPlayerUpdate();
+	end = clock();
+	printf("用时 %d ms.\n", end - start);
 	g_LocalPlayer.SetBase((void *)g_dwPlayerBase);
+	printf("获取Player::ResetEffects函数地址...\n");
+	start = clock();
 	GetPlayerResetEffects();
-
+	end = clock();
+	printf("用时 %d ms.\n", end - start);
 
 	// 关闭控制台
 	fclose(fp);
@@ -575,7 +523,8 @@ void __declspec(naked)HookNoGravity()
 	// 执行被替换的代码
 	__asm
 	{
-		fstp dword ptr[eax + 0000042Ch]		
+		fstp dword ptr[eax + 0000042Ch]
+		mov dword ptr[eax + 0000042Ch], 0
 	}
 	// 保存8个常用寄存器和标志寄存器
 	__asm
@@ -586,7 +535,7 @@ void __declspec(naked)HookNoGravity()
 	// 我的代码
 	__asm
 	{
-		mov dword ptr[eax + 0000042Ch], 0.0
+		
 	}
 	Ret_HookNoGravity = (g_dwFnPlayerUpdate + 0xC68 + 6);
 	// 恢复寄存器，然后返回
