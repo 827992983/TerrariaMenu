@@ -4,8 +4,7 @@
 #include <Windows.h>
 #include <stdio.h>
 #include <vector>
-
-
+#include <tlhelp32.h>
 struct Player
 {
 	void SetBase(void *_this)
@@ -33,13 +32,18 @@ struct Player
 	PBOOL pIsGod; // 没用
 };
 
+BOOL g_Exit = FALSE; // 退出程序
 HMODULE g_hModule; // DLL句柄
+HANDLE g_MainThread; // 主线程句柄
 Player g_LocalPlayer; // 本地玩家类
-DWORD g_dwFnGetLocalPlayer = 0; // 函数地址
-DWORD g_dwFnPlayerUpdate = 0; // 函数地址
 DWORD g_dwPlayerBase = 0; // 本地玩家基址
 BOOL g_bUpdate; // 循环获取玩家信息的线程是否继续运行
 BOOL g_bSuperMove; // 超级移动
+BOOL g_bNoGravity; // 无重力
+
+DWORD g_dwFnGetLocalPlayer = 0; // 函数地址（本地玩家基址）
+DWORD g_dwFnPlayerUpdate = 0; // 函数地址（重力）
+DWORD g_dwFnPlayerResetEffects; // g_dwFnPlayerResetEffects 函数地址（攻击力）
 
 HWND g_MainDialog; // 外挂窗口
 HWND g_StaticInfo; // 玩家信息文本控件
@@ -53,19 +57,34 @@ float g_fLockY; // 锁定的高度
 
 
 DWORD __stdcall EjectThread(LPVOID p);
-VOID CenterDialog(HWND hDlg);
 DWORD GetAddressFromSignature(std::vector<int> signature, DWORD dwStartAddress, DWORD dwEndAddress);
 DWORD GetPlayerBase();
 BOOL CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 DWORD WINAPI CreateMainDialog(LPVOID p);
 DWORD __stdcall UpdateThread(LPVOID p);
 void SuperMove(int step);
+BOOL SetInlineHook(DWORD originalCodeAddr, DWORD originalSize, DWORD newCodeAddr);
+
+// 钩子函数
+void HookNoGravity();
+
+void RemoveHookNoGravity();
+
+void HookOnePunch();
+
+void RemoveHookOnePunch();
+
+
 
 // 卸载DLL
 DWORD __stdcall EjectThread(LPVOID p)
 {
 	g_bUpdate = FALSE;
+	g_Exit = TRUE;
 	Sleep(10000); // 等待UI线程结束
+	//WaitForSingleObject(g_MainThread, INFINITE);
+	//MessageBoxA(0, "再见", "", MB_OK);
+
 	FreeLibraryAndExitThread(g_hModule, 0);
 }
 
@@ -120,7 +139,7 @@ DWORD GetPlayerBase()
 			0xE8 ,-1, -1, -1 ,-1 ,0xCC };
 
 		g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x23000000, 0x24000000);
-		
+
 		if (g_dwFnGetLocalPlayer == 0)
 		{
 			g_dwFnGetLocalPlayer = GetAddressFromSignature(sig, 0x20000000, 0x23000000);
@@ -154,7 +173,7 @@ DWORD GetPlayerBase()
 
 // 获取Player::Update函数地址
 DWORD GetPlayerUpdate()
-{	
+{
 	if (g_dwFnPlayerUpdate == 0)
 	{
 		std::vector<int> sig = {
@@ -197,6 +216,45 @@ DWORD GetPlayerUpdate()
 	return g_dwFnPlayerUpdate;
 }
 
+// 获取 Player::ResetEffects 函数地址
+DWORD GetPlayerResetEffects()
+{
+	if (g_dwFnPlayerResetEffects == 0)
+	{
+		std::vector<int> sig = { 0xD9, 0x9E, 0xE8, 0x03, 0x00, 0x00, 0xD9, 0xE8, 0xD9, 0x9E, 0xF0, 0x03, 0x00, 0x00, 0xD9, 0xE8, 0xD9, 0x9E, 0xEC, 0x03, 0x00, 0x00, 0xD9, 0xE8, 0xD9, 0x9E, 0x00, 0x04, 0x00, 0x00, 0xC7, 0x86, 0xDC, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xC7, 0x86, 0xE4, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xC7, 0x86, 0xE0, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x88, 0x96, 0x32, 0x07, 0x00, 0x00, 0x88, 0x96, 0x33, 0x07, 0x00, 0x00, 0xD9, 0xEE };
+
+		g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x23000000, 0x24000000);
+
+		if (g_dwFnPlayerResetEffects == 0)
+		{
+			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x20000000, 0x23000000);
+		}
+		if (g_dwFnPlayerResetEffects == 0)
+		{
+			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x24000000, 0x26000000);
+		}
+		if (g_dwFnPlayerResetEffects == 0)
+		{
+			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x1F000000, 0x20000000);
+		}
+		if (g_dwFnPlayerResetEffects == 0)
+		{
+			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x26000000, 0x4A000000);
+		}
+		if (g_dwFnPlayerResetEffects == 0)
+		{
+			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig, 0x4A000000, 0x50000000);
+		}
+		if (g_dwFnPlayerResetEffects == 0)
+		{
+			g_dwFnPlayerResetEffects = GetAddressFromSignature(sig);
+		}
+		g_dwFnPlayerResetEffects -= 0xAC;
+	}
+	
+	return g_dwFnPlayerResetEffects;
+}
+
 // 更新玩家信息，捕获热键
 DWORD __stdcall UpdateThread(LPVOID p)
 {
@@ -212,17 +270,19 @@ DWORD __stdcall UpdateThread(LPVOID p)
 		{
 			g_dwPlayerBase = dwLatestPlayerBase;
 			g_LocalPlayer.SetBase((void *)g_dwPlayerBase);
-			char szbuff[100] = { 0 };
-			sprintf(szbuff, "%X", g_dwPlayerBase);
-			SetWindowTextA(g_EditLocalPlayerBase, szbuff);
+			sprintf(szBuffer, "%X", g_dwPlayerBase);
+			SetWindowTextA(g_EditLocalPlayerBase, szBuffer);
 		}
 		// 超级移动
 		if (g_bSuperMove)SuperMove(50);
 		// 更新玩家信息
-		sprintf(szBuffer, "player::update: %X\n"
+		sprintf(szBuffer, 
+			"Player::ResetEffects: %X\n"
+			"player::update: %X\n"
 			"getlocalplayer: %X\n"
 			"坐标 (%.1f, %.1f)\n"
-			"血量: %d\t",			
+			"血量: %d\t",
+			g_dwFnPlayerResetEffects,
 			g_dwFnPlayerUpdate,
 			g_dwFnGetLocalPlayer,
 			*g_LocalPlayer.pX, *g_LocalPlayer.pY,
@@ -244,7 +304,7 @@ BOOL CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		g_Edit_X = GetDlgItem(hDlg, IDC_EDIT_PLAYER_X);
 		g_Edit_Y = GetDlgItem(hDlg, IDC_EDIT_PLAYER_Y);
 		g_EditLocalPlayerBase = GetDlgItem(hDlg, IDC_EDIT_LOCALPLAYER_BASE);
-		
+
 		// 初始化控件内容
 		char szbuff[100] = { 0 };
 		sprintf(szbuff, "%X", g_dwPlayerBase);
@@ -257,7 +317,7 @@ BOOL CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_COMMAND:
 		switch (LOWORD(wParam))
-		{		
+		{
 		case IDC_CHECK_GHOST:
 		{
 			HWND child = GetDlgItem(hDlg, IDC_CHECK_GHOST);
@@ -286,20 +346,32 @@ BOOL CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			}
 			return TRUE;
 		}
-		case IDC_CHECK_LOCK_Y:
+		case IDC_CHECK_NO_GRAVITY:
 		{
-			HWND child = GetDlgItem(hDlg, IDC_CHECK_LOCK_Y);
+			HWND child = GetDlgItem(hDlg, IDC_CHECK_NO_GRAVITY);
 			int ret = SendMessage(child, BM_GETCHECK, 0, 0);
 			if (ret == BST_CHECKED)
 			{
-				g_bLockY = TRUE;
-				g_fLockY = *g_LocalPlayer.pY;
+				SetInlineHook(g_dwFnPlayerUpdate + 0xC68, 6, (DWORD)HookNoGravity);
 			}
 			else
 			{
-				g_bLockY = FALSE;
+				RemoveHookNoGravity();
 			}
-			
+			return TRUE;
+		}
+		case IDC_CHECK_ONE_PUNCH:
+		{
+			HWND child = GetDlgItem(hDlg, IDC_CHECK_ONE_PUNCH);
+			int ret = SendMessage(child, BM_GETCHECK, 0, 0);
+			if (ret == BST_CHECKED)
+			{
+				SetInlineHook(g_dwFnPlayerResetEffects + 0xAC, 6, (DWORD)HookOnePunch);
+			}
+			else
+			{
+				RemoveHookOnePunch();
+			}
 			return TRUE;
 		}
 		case IDC_BUTTON_ADD_HP:
@@ -341,8 +413,8 @@ BOOL CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			return TRUE;
 		}
 		case IDC_BUTTON_DEBUG:
-		{
-			*g_LocalPlayer.pY -= 10;
+		{		
+
 			return TRUE;
 		}
 		}
@@ -355,6 +427,7 @@ BOOL CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	return FALSE;
 }
 
+// 启动线程
 DWORD WINAPI CreateMainDialog(LPVOID p)
 {
 	// 创建控制台
@@ -362,12 +435,12 @@ DWORD WINAPI CreateMainDialog(LPVOID p)
 	FILE *fp;
 	freopen_s(&fp, "CONOUT$", "w", stdout);
 	// AOB扫描内存，得到某些关键函数的地址，从而得到玩家基址等其他信息
-	// 获取玩家基址
 	g_dwPlayerBase = GetPlayerBase();
-	// 获取玩家更新函数基址
-	GetPlayerUpdate();
-	// 更新玩家全局对象
+	GetPlayerUpdate();	
 	g_LocalPlayer.SetBase((void *)g_dwPlayerBase);
+	GetPlayerResetEffects();
+
+
 	// 关闭控制台
 	fclose(fp);
 	FreeConsole();
@@ -395,7 +468,7 @@ BOOL APIENTRY DllMain(HMODULE hModule,
 	case DLL_PROCESS_ATTACH:
 	{
 		g_hModule = hModule;
-		CreateThread(0, 0, (LPTHREAD_START_ROUTINE)CreateMainDialog, 0, 0, 0);
+		g_MainThread = CreateThread(0, 0, (LPTHREAD_START_ROUTINE)CreateMainDialog, 0, 0, 0);
 
 		break;
 	}
@@ -408,39 +481,6 @@ BOOL APIENTRY DllMain(HMODULE hModule,
 	}
 	return TRUE;
 }
-
-VOID CenterDialog(HWND hDlg)
-{
-	HWND hwndOwner = NULL;
-	RECT rcOwner, rcDlg, rc;
-	// Get the owner window and dialog box rectangles. 			
-	if ((hwndOwner = GetParent(hDlg)) == NULL)
-	{
-		hwndOwner = GetDesktopWindow();
-	}
-	GetWindowRect(hwndOwner, &rcOwner);
-	GetWindowRect(hDlg, &rcDlg);
-	CopyRect(&rc, &rcOwner);
-
-	// Offset the owner and dialog box rectangles so that right and bottom 
-	// values represent the width and height, and then offset the owner again 
-	// to discard space taken up by the dialog box. 
-
-	OffsetRect(&rcDlg, -rcDlg.left, -rcDlg.top);
-	OffsetRect(&rc, -rc.left, -rc.top);
-	OffsetRect(&rc, -rcDlg.right, -rcDlg.bottom);
-
-	// The new position is the sum of half the remaining space and the owner's 
-	// original position. 
-
-	SetWindowPos(hDlg,
-		HWND_TOP,
-		rcOwner.left + (rc.right / 2),
-		rcOwner.top + (rc.bottom / 2),
-		0, 0,          // Ignores size arguments. 
-		SWP_NOSIZE);
-}
-
 
 // 超级移动
 void SuperMove(int step)
@@ -490,4 +530,137 @@ void SuperMove(int step)
 		*g_LocalPlayer.pX += step;
 	}
 	g_fLockY = *g_LocalPlayer.pY;
+}
+
+
+// 设置HOOK的函数，将originalCodeAddr处的originalSize个字节替换成5字节的JMP，跳转到newCodeAddr
+BOOL SetInlineHook(DWORD originalCodeAddr, DWORD originalSize, DWORD newCodeAddr)
+{
+	if (originalCodeAddr == 0 || originalSize < 5 || originalSize > 8 || newCodeAddr == 0)
+	{
+		return FALSE;
+	}	
+	// 设置内存写权限
+	DWORD dwOldProtectFlag;
+	BOOL bRet = VirtualProtect((LPVOID)originalCodeAddr, originalSize, PAGE_EXECUTE_READWRITE, &dwOldProtectFlag);
+	if (!bRet)
+	{
+		return FALSE;
+	}
+	// 计算E9 JMP后面的4字节 = 要跳转的地址 - CALL的下一条指令的地址
+	DWORD dwJmpCode = newCodeAddr - (originalCodeAddr + 5);
+	// 构造替换的8字节
+	BYTE bReplace[8] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };//全部用NOP替换	
+	bReplace[0] = 0xE9; // JMP
+	*(PDWORD)(&(bReplace[1])) = dwJmpCode;
+	memcpy((LPVOID)((DWORD)bReplace + originalSize), 
+		(LPVOID)(originalCodeAddr + originalSize), 8 - originalSize);
+	LONG64 llReplace;
+	memcpy(&llReplace, bReplace, 8);
+	// 原子操作hook
+	InterlockedExchange64((LONG64 volatile *)originalCodeAddr, llReplace);
+	// 恢复内存属性
+	VirtualProtect((LPVOID)originalCodeAddr, originalSize, dwOldProtectFlag, &dwOldProtectFlag);
+	return TRUE;
+}
+
+
+
+
+
+// 钩子函数：无重力
+DWORD Ret_HookNoGravity;
+void __declspec(naked)HookNoGravity()
+{
+	// 执行被替换的代码
+	__asm
+	{
+		fstp dword ptr[eax + 0000042Ch]		
+	}
+	// 保存8个常用寄存器和标志寄存器
+	__asm
+	{
+		pushad
+		pushfd
+	}
+	// 我的代码
+	__asm
+	{
+		mov dword ptr[eax + 0000042Ch], 0.0
+	}
+	Ret_HookNoGravity = (g_dwFnPlayerUpdate + 0xC68 + 6);
+	// 恢复寄存器，然后返回
+	__asm
+	{
+		popfd
+		popad
+		jmp Ret_HookNoGravity
+	}
+}
+
+// 取消钩子：无重力
+void RemoveHookNoGravity()
+{
+	//SetInlineHook(g_dwFnPlayerUpdate + 0xC68, 6, (DWORD)HookNoGravity);
+	DWORD originalCodeAddr = g_dwFnPlayerUpdate + 0xC68;
+	DWORD originalSize = 6;
+	// 设置内存写权限
+	DWORD dwOldProtectFlag;
+	VirtualProtect((LPVOID)originalCodeAddr, originalSize, PAGE_EXECUTE_READWRITE, &dwOldProtectFlag);	
+	// 构造替换的8字节
+	//LONG64 llReplace = 0xD9982C0400008B85;
+	LONG64 llReplace = 0x858B0000042C98D9;
+	// 原子操作hook
+	InterlockedExchange64((LONG64 volatile *)originalCodeAddr, llReplace);
+	// 恢复内存属性
+	VirtualProtect((LPVOID)originalCodeAddr, originalSize, dwOldProtectFlag, &dwOldProtectFlag);
+}
+
+
+
+// 钩子函数：一拳超人
+DWORD Ret_HookOnePunch;
+void __declspec(naked)HookOnePunch()
+{
+	// 执行被替换的代码
+	__asm
+	{		
+		fstp dword ptr[esi + 000003E8h]
+		mov dword ptr[esi + 000003E8h], 47C35000h		
+	}
+	// 保存8个常用寄存器和标志寄存器
+	__asm
+	{
+		pushad
+		pushfd
+	}
+	// 我的代码，改伤害	
+	__asm
+	{
+		
+	}
+	Ret_HookOnePunch = (g_dwFnPlayerResetEffects + 0xAC + 6);
+	// 恢复寄存器，然后返回
+	__asm
+	{
+		popfd
+		popad
+		jmp Ret_HookOnePunch
+	}
+}
+
+// 取消钩子：一拳超人
+void RemoveHookOnePunch()
+{
+	DWORD originalCodeAddr = g_dwFnPlayerResetEffects + 0xAC;
+	DWORD originalSize = 6;
+	// 设置内存写权限
+	DWORD dwOldProtectFlag;
+	VirtualProtect((LPVOID)originalCodeAddr, originalSize, PAGE_EXECUTE_READWRITE, &dwOldProtectFlag);
+	// 构造替换的8字节
+	LONG64 llReplace = 0xE8D9000003E89ED9;
+	// 原子操作hook
+	InterlockedExchange64((LONG64 volatile *)originalCodeAddr, llReplace);
+	// 恢复内存属性
+	VirtualProtect((LPVOID)originalCodeAddr, originalSize, dwOldProtectFlag, &dwOldProtectFlag);
 }

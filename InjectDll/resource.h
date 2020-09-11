@@ -16,9 +16,9 @@
 #define IDC_STATIC_LOCALPLAYER_BASE     1023
 #define IDC_EDIT_LOCALPLAYER_BASE       1024
 #define IDC_BUTTON_SUB_HP               1025
-#define IDC_CHECK_GOD                   1026
-#define IDC_CHECK1                      1029
-#define IDC_CHECK_LOCK_Y                1029
+#define IDC_CHECK_NO_GRAVITY            1029
+#define IDC_CHECK1                      1030
+#define IDC_CHECK_ONE_PUNCH             1030
 
 // Next default values for new objects
 // 
@@ -26,7 +26,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        103
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1030
+#define _APS_NEXT_CONTROL_VALUE         1031
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

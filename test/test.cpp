@@ -3,22 +3,28 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <windows.h>
 
 int main()
 {
-    const char *str = "558BEC57565381EC980900008BF18DBD6CF6FFFFB96102000033C0F3AB8BCE898D68F6FFFF8955DC8B8D68F6FFFFE8-1-1-1-18B45DC";
-    for (size_t i = 0; i < strlen(str); i++)
-    {
-        if (i % 2 == 0)
-        {
-            printf("0x%c%c", str[i], str[i + 1]);
-        }
-        else
-        {
-            printf(", ");
-        }
-    }
-    printf("\n");
+    //const char *str = "D99EE8030000D9E8D99EF0030000D9E8D99EEC030000D9E8D99E00040000C786DC03000004000000C786E403000004000000C786E003000004000000889632070000889633070000D9EE";
+    //for (size_t i = 0; i < strlen(str); i++)
+    //{
+    //    if (i % 2 == 0)
+    //    {
+    //        printf("0x%c%c", str[i], str[i + 1]);
+    //    }
+    //    else
+    //    {
+    //        printf(", ");
+    //    }
+    //}
+    //printf("\n");
+
+    //printf("%d\n", sizeof(LONGLONG));//8/
+
+    float a = 114514.0;
+    a = a + 1;
 }
 
 // 运行程序: Ctrl + F5 或调试 >“开始执行(不调试)”菜单
